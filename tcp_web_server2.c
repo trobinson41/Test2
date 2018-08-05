@@ -10,7 +10,7 @@
 #define SERVER_PORT     2000
 
 char data_buffer[1024];
-
+char data_buffer2[1024];
 
 /*string helping functions*/
 
@@ -43,6 +43,53 @@ string_space_trim(char *string){
     memmove(string, ptr, len + 1);
 }
 
+// You must free the result if result is non-NULL.
+char *str_replace(char *orig, char *rep, char *with) {
+    char *result; // the return string
+    char *ins;    // the next insert point
+    char *tmp;    // varies
+    int len_rep;  // length of rep (the string to remove)
+    int len_with; // length of with (the string to replace rep with)
+    int len_front; // distance between rep and end of last rep
+    int count;    // number of replacements
+
+    // sanity checks and initialization
+    if (!orig || !rep)
+        return NULL;
+    len_rep = strlen(rep);
+    if (len_rep == 0)
+        return NULL; // empty rep causes infinite loop during count
+    if (!with)
+        with = "";
+    len_with = strlen(with);
+
+    // count the number of replacements needed
+    ins = orig;
+    for (count = 0; tmp = strstr(ins, rep); ++count) {
+        ins = tmp + len_rep;
+    }
+
+    tmp = result = malloc(strlen(orig) + (len_with - len_rep) * count + 1);
+
+    if (!result)
+        return NULL;
+
+    // first time through the loop, all the variable are set correctly
+    // from here on,
+    //    tmp points to the end of the result string
+    //    ins points to the next occurrence of rep in orig
+    //    orig points to the remainder of orig after "end of rep"
+    while (count--) {
+        ins = strstr(orig, rep);
+        len_front = ins - orig;
+        tmp = strncpy(tmp, orig, len_front) + len_front;
+        tmp = strcpy(tmp, with) + len_with;
+        orig += len_front + len_rep; // move to next "end of rep"
+    }
+    strcpy(tmp, orig);
+    return result;
+}
+
 typedef struct student_{
 
     char name[32];
@@ -52,6 +99,7 @@ typedef struct student_{
 } student_t; 
 
 student_t student[1000];
+int number_students;
 
 static char *
 process_GET_request(char *URL, unsigned int *response_len){
@@ -85,14 +133,14 @@ process_GET_request(char *URL, unsigned int *response_len){
     printf("roll_no_value = %s\n", roll_no_value);
     unsigned int roll_no = atoi(roll_no_value), i = 0;
 
-    for(i = 0; i < 5; i++){
+    for(i = 0; i < number_students; i++){
         if(student[i].roll_no != roll_no){
             continue;
         }
         break;
     }
     
-    if(i == 5)
+    if(i == number_students)
         return NULL;
     
     /*We have got the students of interest here*/
@@ -112,16 +160,16 @@ process_GET_request(char *URL, unsigned int *response_len){
         "<tr>"
         "<td>");
 
-        strcat(response , 
+        strcat(response, 
             student[i].name
         );
 
-        strcat(response ,
+        strcat(response,
             "</td></tr>");
-        strcat(response , 
-                "</table>"
-                "</body>"
-                "</html>");
+        strcat(response, 
+            "</table>"
+            "</body>"
+            "</html>");
 
     unsigned int content_len_str = strlen(response);
 
@@ -147,7 +195,7 @@ process_GET_request(char *URL, unsigned int *response_len){
 static char *
 process_POST_request(char *URL, int flag, unsigned int *response_len){
 
-   char *response = calloc(1, 1024);
+    char *response = calloc(1, 1024);
 
     strcpy(response,
         "<html>"
@@ -163,22 +211,24 @@ process_POST_request(char *URL, int flag, unsigned int *response_len){
         "<tr>"
         "<td>");
 
-        if (flag) {
-            strcat(response , 
-                "Student was added."
-            );
-	} else {
-            strcat(response , 
-                "Student could not be added. Class is full."
-            );
-	}
+    if (flag) {
+        printf("flag is 1");
+        strcat(response, 
+            "Student was added."
+        );
+    } else {
+        printf("flag is 0");
+        strcat(response, 
+            "Student could not be added. Class is full."
+        );
+    }
 
-        strcat(response ,
-            "</td></tr>");
-        strcat(response , 
-                "</table>"
-                "</body>"
-                "</html>");
+    strcat(response,
+        "</td></tr>");
+    strcat(response, 
+        "</table>"
+        "</body>"
+        "</html>");
 
     unsigned int content_len_str = strlen(response);
 
@@ -230,7 +280,8 @@ setup_tcp_server_communication(){
     strcpy(student[4].hobby, "Programming");
     strcpy(student[4].dept, "Electrical");
 
-    int number_students = 5;
+    number_students = 5;
+
     int flag = 0;
     char *temp = NULL;
     char *name = NULL;
@@ -374,6 +425,7 @@ setup_tcp_server_communication(){
                 char del[2] = "\n", 
                      *method = NULL,
                      *URL = NULL;
+		strcpy(data_buffer2, data_buffer);
                 request_line = strtok(data_buffer, del); /*Extract out the request line*/
                 del[0] = ' ';
                 method = strtok(request_line, del);     /*Tokenize the request line on the basis of space, and extract the first word*/
@@ -388,33 +440,62 @@ setup_tcp_server_communication(){
                     response = process_GET_request(URL, &response_length);
                 }
                 else if(strncmp(method, "POST", strlen("POST")) == 0){
-		    del[0] = "\n";
-		    request_line = strtok(data_buffer, del);
-		    while (1) {
-		        if (request_line == NULL) break;		/*Stop if no more lines are left*/
-		        if (strcmp(request_line, "") == 0) break;	/*Stop when a blank line is reached*/
-		        request_line = strtok(NULL, del);
+		    char del2[2] = "\n";
+		    request_line = strtok(data_buffer2, del2);
+		    while(1){
+			if (request_line == NULL) break;
+		        if (strlen(request_line) > 0 && strncmp(request_line, "{", strlen("{")) == 0){
+			    printf("\nJSON found.\n");
+			    break;
+			}
+		        request_line = strtok(NULL, del2);
 		    }
 		    if (request_line != NULL) {
-		        char *name_line = strtok(NULL, del);	/*Get name line*/
-		        char *roll_no_line = strtok(NULL, del);	/*Get roll_no line*/
-		        char *hobby_line = strtok(NULL, del);	/*Get hobby line*/
-		        char *dept_line = strtok(NULL, del);	/*Get dept line*/
+		        char *name_line = strtok(NULL, del2);	/*Get name line*/
+		        char *roll_no_line = strtok(NULL, del2);	/*Get roll_no line*/
+		        char *hobby_line = strtok(NULL, del2);	/*Get hobby line*/
+		        char *dept_line = strtok(NULL, del2);	/*Get dept line*/
 
-		        del[0] = ":";
-		        temp = strtok(name_line, del);	/*Extract name*/
-		        name = strtok(NULL, del);
-		        temp = strtok(roll_no_line, del);	/*Extract roll_no*/
-		        roll_no = strtok(NULL, del);
-		        temp = strtok(hobby_line, del);	/*Extract hobby*/
-		        hobby = strtok(NULL, del);
-		        temp = strtok(dept_line, del);	/*Extract dept*/
-		        dept = strtok(NULL, del);
+		        char del3[2] = ":";
+		        temp = strtok(name_line, del3);		/*Extract name*/
+		        temp = strtok(NULL, del3);
+printf("\ntemp: %s", temp);
+			name = str_replace(temp, "\"", "");
+printf("\name: %s", name);
+		        temp = strtok(roll_no_line, del3);	/*Extract roll_no*/
+printf("\ntemp: %s", temp);
+		        temp = strtok(NULL, del3);
+			roll_no = str_replace(temp, "\"", "");
+		        temp = strtok(hobby_line, del3);		/*Extract hobby*/
+printf("\ntemp: %s", temp);
+		        temp = strtok(NULL, del3);
+			hobby = str_replace(temp, "\"", "");
+		        temp = strtok(dept_line, del3);		/*Extract dept*/
+printf("\ntemp: %s\n", temp);
+		        temp = strtok(NULL, del3);
+			dept = str_replace(temp, "\"", "");
+
+printf("OUTPUT:\n");
+                        printf("\nname = %s\n", name);
+			printf("roll_no = %s\n", roll_no);
+			printf("hobby = %s\n", hobby);
+			printf("dept = %s\n\n", dept);
 
 		        if (number_students < 1000) {
 			    number_students = number_students + 1;
-			    student_t new_student = {name, roll_no, hobby, dept};
+			    student_t new_student;
+/*////////////////////////*/
+			    strcpy(new_student.name, name);
+			    new_student.roll_no = atoi(roll_no);
+			    strcpy(new_student.hobby, hobby);
+			    strcpy(new_student.dept, dept);
     		            student[number_students - 1] = new_student;
+
+			    free(name);
+			    free(roll_no);
+			    free(hobby);
+			    free(dept);
+
 	                    flag = 1;
 		        } else {
 			    flag = 0;
